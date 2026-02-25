@@ -113,16 +113,17 @@ def compute_authenticode_hash_ossl(filepath):
             timeout=20
         )
 
-        if result.returncode != 0:
-            return None
-
         for line in result.stdout.splitlines():
             if "Hash of file (sha256):" in line:
                 return line.split(":")[-1].strip().lower()
+            if "Calculated message digest" in line:
+                return line.split(":")[-1].strip().lower()
 
-    except Exception:
+    except Exception as e:
+        print(f"Warning: No osslsigncode failed with execption {e} for {filepath}")
         return None
 
+    print(f"Warning: osslsigncode could not find authenticode hash for {filepath}")
     return None
 
 
