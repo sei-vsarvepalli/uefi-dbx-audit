@@ -5,10 +5,11 @@ import requests
 import hashlib
 import sys
 import subprocess
+import argparse
 
 DBX_JSON = "dbx_info_msft_latest.json"
 DBX_URL = f"https://raw.githubusercontent.com/microsoft/secureboot_objects/main/PreSignedObjects/DBX/{DBX_JSON}"
-EFI_PATH = "/boot/efi"
+DEFAULT_EFI_PATH = "/boot/efi"
 
 # ------------------------------------------------------------
 # Optional signify support
@@ -28,7 +29,7 @@ except Exception:
 # ------------------------------------------------------------
 
 def download_dbx_json(url):
-    print("[*] Downloading DBX JSON...")
+    print(f"[*] Downloading DBX JSON from {url} ...")
     r = requests.get(url, timeout=30)
     r.raise_for_status()
     return r.json()
@@ -131,14 +132,14 @@ def compute_authenticode_hash_ossl(filepath):
 # Scanning
 # ------------------------------------------------------------
 
-def scan_efi_folder(dbx_hashes):
-    print(f"[*] Scanning {EFI_PATH} ...")
+def scan_efi_folder(dbx_hashes, efi_path):
+    print(f"[*] Scanning {efi_path} ...")
 
     total_files = 0
     pe_files = 0
     matches = []
 
-    for root, dirs, files in os.walk(EFI_PATH):
+    for root, dirs, files in os.walk(efi_path):
         for name in files:
             total_files += 1
             full_path = os.path.join(root, name)
@@ -169,19 +170,77 @@ def scan_efi_folder(dbx_hashes):
 
 
 # ------------------------------------------------------------
-# Main
+# CLI
 # ------------------------------------------------------------
 
-def main():
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="Scan an EFI system partition directory for binaries whose Authenticode hash is present in Microsoft's DBX revoked list."
+    )
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help=f"Path to scan (default: {DEFAULT_EFI_PATH})"
+    )
+    parser.add_argument(
+        "-p", "--path",
+        dest="path_flag",
+        default=None,
+        help=f"Path to scan (overrides positional PATH; default: {DEFAULT_EFI_PATH})"
+    )
+    parser.add_argument(
+        "-j", "--dbx-json",
+        dest="dbx_json_path",
+        default=None,
+        help=f"Use this local DBX JSON file instead of downloading (default: use ./{DBX_JSON} if present, else download)."
+    )
+    return parser.parse_args(argv)
+
+def resolve_scan_path(args):
+    scan_path = args.path_flag or args.path or DEFAULT_EFI_PATH
+
+    if not os.path.exists(scan_path):
+        print(f"[!] Scan path does not exist: {scan_path}")
+        sys.exit(1)
+
+    if not os.path.isdir(scan_path):
+        print(f"[!] Scan path is not a directory: {scan_path}")
+        sys.exit(1)
+
+    return scan_path
+
+def load_dbx(args):
+    # If user supplies a JSON path, always use it (and do not download).
+    if args.dbx_json_path:
+        dbx_json = local_dbx_json(args.dbx_json_path)
+        if not dbx_json:
+            sys.exit(1)
+        return dbx_json
+
+    # Backward-compatible: use local ./dbx_info_msft_latest.json if present.
     if os.path.exists(DBX_JSON):
         dbx_json = local_dbx_json(DBX_JSON)
         if not dbx_json:
             sys.exit(1)
-    else:
-        dbx_json = download_dbx_json(DBX_URL)
+        return dbx_json
 
+    # Otherwise download.
+    return download_dbx_json(DBX_URL)
+
+
+# ------------------------------------------------------------
+# Main
+# ------------------------------------------------------------
+
+def main(argv=None):
+    args = parse_args(argv if argv is not None else sys.argv[1:])
+    efi_path = resolve_scan_path(args)
+
+    dbx_json = load_dbx(args)
     dbx_hashes = extract_x64_hashes(dbx_json)
-    matches = scan_efi_folder(dbx_hashes)
+
+    matches = scan_efi_folder(dbx_hashes, efi_path)
 
     if not matches:
         print("[+] No revoked EFI binaries detected.")
