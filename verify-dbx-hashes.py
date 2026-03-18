@@ -6,6 +6,8 @@ import hashlib
 import sys
 import subprocess
 import argparse
+import tempfile
+import re
 
 DBX_JSON = "dbx_info_msft_latest.json"
 DBX_URL = f"https://raw.githubusercontent.com/microsoft/secureboot_objects/main/PreSignedObjects/DBX/{DBX_JSON}"
@@ -22,6 +24,14 @@ try:
     print("[*] Using signify for Authenticode hashing")
 except Exception:
     print("[*] signify not available, falling back to osslsigncode")
+
+
+# ------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------
+
+def _normalize_hex(s):
+    return re.sub(r"[^0-9a-fA-F]", "", s).lower()
 
 
 # ------------------------------------------------------------
@@ -59,6 +69,29 @@ def extract_x64_hashes(dbx_json):
     print(f"[*] Loaded {len(hashes)} x64 hashes from DBX")
     return hashes
 
+def extract_revoked_cert_thumbprints(dbx_json):
+    """
+    DBX JSON provides revoked certificates in top-level `certificates`.
+    The field `thumbprint` appears to be a SHA-1 fingerprint (40 hex chars).
+    Returns dict sha1_thumbprint_hex -> cert_entry
+    """
+    revoked = {}
+    certs = dbx_json.get("certificates", [])
+    if not isinstance(certs, list):
+        return revoked
+
+    for c in certs:
+        if not isinstance(c, dict):
+            continue
+        tp = c.get("thumbprint")
+        if isinstance(tp, str) and tp.strip():
+            tp_norm = _normalize_hex(tp)
+            if tp_norm:
+                revoked[tp_norm] = c
+
+    print(f"[*] Loaded {len(revoked)} revoked certificate thumbprints from DBX")
+    return revoked
+
 
 # ------------------------------------------------------------
 # Lightweight PE Validation
@@ -92,7 +125,7 @@ def looks_like_pe(filepath):
 
 
 # ------------------------------------------------------------
-# Authenticode Hashing
+# Authenticode Hashing (binary hash)
 # ------------------------------------------------------------
 
 def compute_authenticode_hash_signify(filepath):
@@ -129,15 +162,144 @@ def compute_authenticode_hash_ossl(filepath):
 
 
 # ------------------------------------------------------------
+# Certificate extraction (OpenSSL) for revoked signer checks
+# ------------------------------------------------------------
+
+def extract_pkcs7_der_from_pe(filepath):
+    """
+    Extract Authenticode PKCS#7 (DER) bytes from PE attribute certificate table.
+    Returns bytes or None.
+    """
+    try:
+        with open(filepath, "rb") as f:
+            # DOS header -> e_lfanew
+            f.seek(0x3C)
+            e_lfanew = int.from_bytes(f.read(4), "little")
+
+            # NT signature
+            f.seek(e_lfanew)
+            if f.read(4) != b"PE\x00\x00":
+                return None
+
+            # Optional header starts after COFF header (20 bytes)
+            coff_off = e_lfanew + 4
+            opt_off = coff_off + 20
+
+            f.seek(opt_off)
+            magic = int.from_bytes(f.read(2), "little")
+
+            if magic == 0x10B:      # PE32
+                data_dir_off = opt_off + 96
+            elif magic == 0x20B:    # PE32+
+                data_dir_off = opt_off + 112
+            else:
+                return None
+
+            # IMAGE_DIRECTORY_ENTRY_SECURITY = 4
+            security_entry_off = data_dir_off + (4 * 8)
+            f.seek(security_entry_off)
+            cert_table_off = int.from_bytes(f.read(4), "little")  # file offset, not RVA
+            cert_table_size = int.from_bytes(f.read(4), "little")
+
+            if cert_table_off == 0 or cert_table_size == 0:
+                return None
+
+            # WIN_CERTIFICATE
+            f.seek(cert_table_off)
+            dw_length = int.from_bytes(f.read(4), "little")
+            _w_revision = int.from_bytes(f.read(2), "little")
+            _w_cert_type = int.from_bytes(f.read(2), "little")
+
+            if dw_length < 8:
+                return None
+
+            pkcs7_len = dw_length - 8
+            pkcs7_der = f.read(pkcs7_len)
+            if len(pkcs7_der) != pkcs7_len:
+                return None
+
+            return pkcs7_der
+    except Exception:
+        return None
+
+def _openssl_fingerprint(cert_pem_path, algo):
+    r = subprocess.run(
+        ["openssl", "x509", "-in", cert_pem_path, "-noout", "-fingerprint", f"-{algo}"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if r.returncode != 0 or "Fingerprint=" not in r.stdout:
+        return None
+    return _normalize_hex(r.stdout.split("Fingerprint=")[-1])
+
+def get_embedded_cert_sha1_fingerprints_openssl(filepath):
+    """
+    Returns set of SHA1 fingerprints (hex lowercase, no colons) for all certs embedded
+    in the Authenticode PKCS#7 signature.
+    """
+    pkcs7_der = extract_pkcs7_der_from_pe(filepath)
+    if not pkcs7_der:
+        return set()
+
+    with tempfile.TemporaryDirectory() as td:
+        p7b_path = os.path.join(td, "sig.p7b")
+        with open(p7b_path, "wb") as f:
+            f.write(pkcs7_der)
+
+        r = subprocess.run(
+            ["openssl", "pkcs7", "-inform", "DER", "-in", p7b_path, "-print_certs"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if r.returncode != 0 or "BEGIN CERTIFICATE" not in r.stdout:
+            return set()
+
+        blocks = re.findall(
+            r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+            r.stdout,
+            flags=re.DOTALL,
+        )
+
+        fps = set()
+        for i, block in enumerate(blocks):
+            cert_path = os.path.join(td, f"cert{i}.pem")
+            with open(cert_path, "w") as f:
+                f.write(block + "\n")
+            sha1 = _openssl_fingerprint(cert_path, "sha1")
+            if sha1:
+                fps.add(sha1)
+
+        return fps
+
+def signer_cert_is_revoked(filepath, revoked_thumbprints):
+    """
+    revoked_thumbprints: dict sha1_hex -> cert_entry
+    Returns (True, cert_entry, matched_thumbprint) or (False, None, None)
+    """
+    embedded = get_embedded_cert_sha1_fingerprints_openssl(filepath)
+    if not embedded:
+        return (False, None, None)
+
+    for fp in embedded:
+        if fp in revoked_thumbprints:
+            return (True, revoked_thumbprints[fp], fp)
+
+    return (False, None, None)
+
+
+# ------------------------------------------------------------
 # Scanning
 # ------------------------------------------------------------
 
-def scan_efi_folder(dbx_hashes, efi_path):
+def scan_efi_folder(dbx_hashes, revoked_cert_thumbprints, efi_path):
     print(f"[*] Scanning {efi_path} ...")
 
     total_files = 0
     pe_files = 0
-    matches = []
+    hash_matches = []
+    cert_matches = []
 
     for root, dirs, files in os.walk(efi_path):
         for name in files:
@@ -149,33 +311,44 @@ def scan_efi_folder(dbx_hashes, efi_path):
 
             pe_files += 1
 
+            # Check 1: revoked binary hash (existing behavior)
             if USE_SIGNIFY:
                 hash_value = compute_authenticode_hash_signify(full_path)
             else:
                 hash_value = compute_authenticode_hash_ossl(full_path)
 
-            if not hash_value:
-                continue
+            if hash_value and hash_value in dbx_hashes:
+                hash_matches.append((full_path, hash_value))
+                print(f"[!] DBX HASH MATCH: {full_path}")
 
-            if hash_value in dbx_hashes:
-                matches.append((full_path, hash_value))
-                print(f"[!] MATCH FOUND: {full_path}")
+            # Check 2: revoked certificate thumbprint (new behavior)
+            revoked, cert_entry, fp = signer_cert_is_revoked(full_path, revoked_cert_thumbprints)
+            if revoked:
+                cert_matches.append((full_path, fp, cert_entry))
+                subj = cert_entry.get("subjectName", "")
+                print(f"[!] DBX CERT MATCH: {full_path} (thumbprint={fp})")
+                if subj:
+                    print(f"    subjectName: {subj}")
+                desc = cert_entry.get("description", "")
+                if desc:
+                    print(f"    description: {desc}")
 
     print("\n===== Scan Summary =====")
     print(f"Total files scanned: {total_files}")
     print(f"PE files detected: {pe_files}")
-    print(f"Revoked matches found: {len(matches)}")
+    print(f"Revoked binary hash matches found: {len(hash_matches)}")
+    print(f"Revoked certificate matches found: {len(cert_matches)}")
 
-    return matches
+    return hash_matches, cert_matches
 
 
 # ------------------------------------------------------------
-# CLI
+# CLI / Main
 # ------------------------------------------------------------
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(
-        description="Scan an EFI system partition directory for binaries whose Authenticode hash is present in Microsoft's DBX revoked list."
+        description="Scan an EFI directory for revoked binaries (DBX authenticodeHash) and revoked signing certificates (DBX certificates thumbprints)."
     )
     parser.add_argument(
         "path",
@@ -211,27 +384,19 @@ def resolve_scan_path(args):
     return scan_path
 
 def load_dbx(args):
-    # If user supplies a JSON path, always use it (and do not download).
     if args.dbx_json_path:
         dbx_json = local_dbx_json(args.dbx_json_path)
         if not dbx_json:
             sys.exit(1)
         return dbx_json
 
-    # Backward-compatible: use local ./dbx_info_msft_latest.json if present.
     if os.path.exists(DBX_JSON):
         dbx_json = local_dbx_json(DBX_JSON)
         if not dbx_json:
             sys.exit(1)
         return dbx_json
 
-    # Otherwise download.
     return download_dbx_json(DBX_URL)
-
-
-# ------------------------------------------------------------
-# Main
-# ------------------------------------------------------------
 
 def main(argv=None):
     args = parse_args(argv if argv is not None else sys.argv[1:])
@@ -239,17 +404,26 @@ def main(argv=None):
 
     dbx_json = load_dbx(args)
     dbx_hashes = extract_x64_hashes(dbx_json)
+    revoked_certs = extract_revoked_cert_thumbprints(dbx_json)
 
-    matches = scan_efi_folder(dbx_hashes, efi_path)
+    hash_matches, cert_matches = scan_efi_folder(dbx_hashes, revoked_certs, efi_path)
 
-    if not matches:
-        print("[+] No revoked EFI binaries detected.")
+    if not hash_matches and not cert_matches:
+        print("[+] No revoked EFI binaries or revoked signer certificates detected.")
     else:
-        print("\n[!] Revoked EFI binaries:")
-        for path, h in matches:
-            print(f"{path} -> {h}")
-        sys.exit(2)  # Non-zero exit for automation/compliance
+        if hash_matches:
+            print("\n[!] Revoked EFI binaries (DBX authenticodeHash):")
+            for path, h in hash_matches:
+                print(f"{path} -> {h}")
 
+        if cert_matches:
+            print("\n[!] EFI binaries signed with revoked certificates (DBX certificates thumbprints):")
+            for path, fp, cert_entry in cert_matches:
+                subj = cert_entry.get("subjectName", "")
+                print(f"{path} -> thumbprint={fp}" + (f" subjectName={subj}" if subj else ""))
+
+        # non-zero exit for automation/compliance
+        sys.exit(2)
 
 if __name__ == "__main__":
     main()
