@@ -153,8 +153,8 @@ def compute_authenticode_hash_ossl(filepath):
                 return line.split(":")[-1].strip().lower()
             if "Calculated message digest" in line:
                 return line.split(":")[-1].strip().lower()
-    except Exception:
-        return None
+    except Exception as e:
+        print("Error osslsigncode is not working {e} Install if needed")
     return None
 
 
