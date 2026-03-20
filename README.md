@@ -13,7 +13,7 @@ The script `verify-dbx-hashes.py`, by default, scans a mounted EFI filesystem (d
 
 Example 1: Default operation (no revoked binaries found)
 ```
-bash:~$  python3 verify-dbx-hashes_Version38.py 
+bash:~$  python3 verify-dbx.py 
 [*] signify not available, falling back to osslsigncode
 [*] Loaded 431 x64 hashes from DBX JSON
 [*] Loaded 1 revoked certificate thumbprints from DBX JSON
@@ -30,7 +30,7 @@ Revoked certificate matches found: 0
 Example 2: Default operation (a revoked efi found in /boot/efi )
 
 ```
-bash:~$ python3 verify-dbx-hashes_Version38.py 
+bash:~$ python3 verify-dbx.py 
 [*] signify not available, falling back to osslsigncode
 [*] Loaded 431 x64 hashes from DBX JSON
 [*] Loaded 1 revoked certificate thumbprints from DBX JSON
@@ -53,7 +53,7 @@ to Windows and although not part of standard DBX update itself. Most
 linux system will not care about the presence of this vulnerable bootloader
 
 ```
-bash:~$  python3 verify-dbx-hashes_Version38.py /tmp
+bash:~$  python3 verify-dbx.py /tmp
 [*] signify not available, falling back to osslsigncode
 [*] Loaded 431 x64 hashes from DBX JSON
 [*] Loaded 1 revoked certificate thumbprints from DBX JSON
@@ -79,7 +79,7 @@ a risk for linux system but a longer-term planning by Microsoft to remove
 *BlackLotus UEFI Bootkit* motif :)
 
 ```
-bash:~$ python3 verify-dbx-hashes_Version38.py --check-local-dbx  --list-missing
+bash:~$ python3 verify-dbx.py --check-local-dbx  --list-missing
 [*] signify not available, falling back to osslsigncode
 [*] Loaded 431 x64 hashes from DBX JSON
 
@@ -104,7 +104,7 @@ It is sometimes possible you DO NOT have space in your flash ROM to store
 these. In those cases, it is time to buy a new hardware. 
 
 ```
-bash:~$ python3 verify-dbx-hashes_Version38.py --check-local-dbx   --list-missing
+bash:~$ python3 verify-dbx.py --check-local-dbx   --list-missing
 [*] signify not available, falling back to osslsigncode
 [*] Loaded 431 x64 hashes from DBX JSON
 
