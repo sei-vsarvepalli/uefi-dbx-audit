@@ -21,7 +21,7 @@ Microsoft’s revoked Authenticode hashes (DBX). If it finds matches, it reports
 
 ---
 
-## Examples
+## Learn by Examples
 
 ### Example 1: Default operation (no revoked binaries found)
 
