@@ -1,17 +1,30 @@
 # uefi-dbx-audit
 
-A UEFI SecureBoot DBX audit toolkit for Linux.
+A UEFI Secure Boot DBX audit toolkit for Linux.
 
 ---
 
 ## Overview
 
-This is designed to be a SecureBoot audit capability for Linux. Sort of mimics the project [Check-UEFISecureBootVariables](https://github.com/cjee21/Check-UEFISecureBootVariables). The project aims to audit if your UEFI Forbidden list DBX is up to date with what is being put out via Microsoft's opensource [SecureBoot Objects](https://github.com/microsoft/secureboot_objects/wiki)  project. It can also audit a mounted Linux EFI System Partition (ESP) for binaries that are found to be revoked by Microsoft's Secure Boot DBX.  
+This project provides a Secure Boot audit toolkit for Linux. It is inspired by
+[Check-UEFISecureBootVariables](https://github.com/cjee21/Check-UEFISecureBootVariables).
 
+It audits whether your UEFI forbidden-signature database (**DBX**) is up to date
+with Microsoft’s published Secure Boot revocations (via the open-source
+[SecureBoot Objects](https://github.com/microsoft/secureboot_objects/wiki) project).
+It can also audit a mounted Linux EFI System Partition (**ESP**) for binaries that
+match entries revoked by Microsoft’s Secure Boot DBX.
 
-The script `verify-dbx-hashes.py`, by default, scans a mounted EFI filesystem (default: `/boot/efi`) and checks whether any EFI binaries, shims, or bootloader blobs match Microsoft’s latest revoked Authenticode hashes (DBX) and gives you a warning of such firmware files exist in your ESP volume.
+By default, the script `verify-dbx.py` scans a mounted EFI filesystem (default:
+`/boot/efi`) and checks whether any EFI binaries, shims, or bootloader files match
+Microsoft’s revoked Authenticode hashes (DBX). If it finds matches, it reports them.
 
-Example 1: Default operation (no revoked binaries found)
+---
+
+## Examples
+
+### Example 1: Default operation (no revoked binaries found)
+
 ```
 bash:~$  python3 verify-dbx.py 
 [*] signify not available, falling back to osslsigncode
@@ -27,7 +40,7 @@ Revoked certificate matches found: 0
 [+] No revoked EFI binaries or revoked signer certificates detected.
 ```
 
-Example 2: Default operation (a revoked efi found in /boot/efi )
+### Example 2: Default operation (a revoked EFI found in `/boot/efi`)
 
 ```
 bash:~$ python3 verify-dbx.py 
@@ -47,10 +60,13 @@ Revoked certificate matches found: 0
 /boot/efi/EFI/BOOT/VU529659.efi -> cdb7c90d3ab8833d5324f5d8516d41fa990b9ca721fe643fffaef9057d9f9e48
 ```
 
-Example 3: Scan a specific folder `/tmp/`, showing a vulnerable BootLoader
-exist in your filesystem. In this case, revoked by certificate specific
-to Windows and although not part of standard DBX update itself. Most
-linux system will not care about the presence of this vulnerable bootloader
+
+### Example 3: Scan a specific folder (e.g., `/tmp`)
+
+This scans a specific folder and shows a vulnerable bootloader present on your
+filesystem. In this example, the file is revoked due to a Windows-specific
+certificate, and it may not be relevant to most Linux systems. However, it can
+still be useful to know it exists on disk.
 
 ```
 bash:~$  python3 verify-dbx.py /tmp
@@ -71,12 +87,16 @@ Revoked certificate matches found: 1
 /tmp/bootmgfw.efi -> thumbprint=580a6f4cc4e4b669b9ebdc1b2b3e087b80d0678d subjectName=CN = Microsoft Windows Production PCA 2011
 ```
 
-Example 4: Audit current DBX if it is up to date with latest Microsoft's
-recommeded DBX and report any missing signatures. Here it shows the revoked
-certificate Mcirosoft PCA 2011" is missing, however it is NOT considered
-a risk for linux system but a longer-term planning by Microsoft to remove
-100's of previously signed yet vulnerable bootloaders under the
-*BlackLotus UEFI Bootkit* motif :)
+
+### Example 4: Check whether the local DBX is up to date (and list missing entries)
+
+This checks whether the DBX currently present in firmware is a superset of the
+expected Microsoft DBX data and reports missing entries. In this example, the
+certificate thumbprint for “Microsoft Windows Production PCA 2011” is reported as
+missing. Depending on your system and threat model, this may or may not be
+directly relevant, but it can be useful for tracking DBX coverage (e.g., in the
+context of BlackLotus-related revocations).
+
 
 ```
 bash:~$ python3 verify-dbx.py --check-local-dbx  --list-missing
@@ -99,12 +119,15 @@ Missing revoked cert thumbprints (sha1):
 ```
 
 
-Example 5: Similar to Example 4 but shows some singatures are missing.
-It is sometimes possible you DO NOT have space in your flash ROM to store
-these. In those cases, it is time to buy a new hardware. 
+
+### Example 5: Missing signatures (could be due to limited firmware storage)
+
+This is similar to Example 4, but shows missing signatures. In some cases, a
+system may not have enough available firmware/NVRAM space to store additional
+DBX entries. Consider getting new hardware, as you cannot avoid BootKits! 
 
 ```
-bash:~$ python3 verify-dbx.py --check-local-dbx   --list-missing
+bash:~$ python3 verify-dbx-hashes_Version38.py --check-local-dbx   --list-missing
 [*] signify not available, falling back to osslsigncode
 [*] Loaded 431 x64 hashes from DBX JSON
 
@@ -143,7 +166,7 @@ Missing revoked image hashes (sha256):
 
 Missing revoked cert thumbprints (sha1):
   580a6f4cc4e4b669b9ebdc1b2b3e087b80d0678d
-
 ```
 
-Still want to learn more? Continue in the [DeepDive.md](DeepDive.md]
+Still want to learn more? Continue in [DeepDive.md](DeepDive.md).
+
