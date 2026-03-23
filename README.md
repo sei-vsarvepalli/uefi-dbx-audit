@@ -168,5 +168,34 @@ Missing revoked cert thumbprints (sha1):
   580a6f4cc4e4b669b9ebdc1b2b3e087b80d0678d
 ```
 
+### Example 6: SBAT Policy check mismatches in /tmp/super folder
+
+This is specific to checking if SBAT violation exists where an older
+version of a SHIM or GRUB exists that should be updated appropriately
+as well. The NVRAM Variable in the SBATLevelRT is not checked, we start
+with RedHat's rhboot/shim repository as the latest policy.
+
+```
+bash:~$ python3 verify-dbx-hashes.py -p /tmp/super/
+[*] signify not available, falling back to osslsigncode
+[*] Downloading SBAT CSV from https://raw.githubusercontent.com/rhboot/shim/refs/heads/main/SbatLevel_Variable.txt ...
+[*] Loaded SBAT policy as {'sbat': 1, 'grub': 5, 'shim': 4}
+[*] Loaded 431 x64 hashes from DBX JSON
+[*] Loaded 1 revoked certificate thumbprints from DBX JSON
+[*] Scanning /tmp/super/ ...
+
+===== Scan Summary =====
+Total files scanned: 8
+PE files detected: 8
+Revoked binary hash matches found: 0
+Revoked certificate matches found: 0
+
+[!] SBAT version check failed for :
+/tmp/super/mmia32.efi -> Expected version: 4, Seen version: 2
+/tmp/super/BOOTX64.EFI -> Expected version: 4, Seen version: 2
+/tmp/super/BOOTIA32.EFI -> Expected version: 4, Seen version: 2
+/tmp/super/mmx64.efi -> Expected version: 4, Seen version: 2
+```
+
 Still want to learn more? Continue in [DeepDive.md](DeepDive.md).
 
