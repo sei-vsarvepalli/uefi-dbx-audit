@@ -10,15 +10,18 @@ import tempfile
 import re
 import platform
 import struct
+import csv
+import io
 
 DBX_JSON = "dbx_info_msft_latest.json"
 DBX_URL = f"https://raw.githubusercontent.com/microsoft/secureboot_objects/main/PreSignedObjects/DBX/{DBX_JSON}"
+SBAT_URL = "https://raw.githubusercontent.com/rhboot/shim/refs/heads/main/SbatLevel_Variable.txt"
 DEFAULT_EFI_PATH = "/boot/efi"
-
 EFI_DBX_EFIVAR_PATH_DEFAULT = "/sys/firmware/efi/efivars/dbx-d719b2cb-3d3a-4596-a3bc-dad00e67656f"
-
 EFI_CERT_X509_GUID = "a5c059a1-94e4-4aa7-87b5-ab155c2bf072"
 EFI_CERT_SHA256_GUID = "c1c41626-504c-4092-aca9-41f936934328"
+
+_VERSION = "1.0.9"
 
 # ------------------------------------------------------------
 # Optional signify support
@@ -50,6 +53,21 @@ def download_dbx_json(url):
     r = requests.get(url, timeout=30)
     r.raise_for_status()
     return r.json()
+
+def load_sbat(url):
+    print(f"[*] Downloading SBAT CSV from {url} ...")
+    r = requests.get(url, timeout=30)
+    r.raise_for_status()
+    csv_data = r.text
+    result = {}
+    reader = csv.reader(io.StringIO(csv_data))
+    for row in reader:
+        if not row:
+            continue
+        if len(row) > 1 and row[0] in ["shim", "grub", "sbat"]:
+            result[row[0]] = int(row[1])
+    print(f"[*] Loaded SBAT policy as {result}")
+    return result
 
 def local_dbx_json(file_path):
     try:
@@ -424,13 +442,14 @@ def parse_efi_signature_lists(data):
 # Scan filesystem for revoked hashes/certs (optional)
 # ------------------------------------------------------------
 
-def scan_efi_folder(dbx_hashes, revoked_cert_thumbprints, efi_path):
+def scan_efi_folder(dbx_hashes, revoked_cert_thumbprints, sbat_policy, efi_path):
     print(f"[*] Scanning {efi_path} ...")
 
     total_files = 0
     pe_files = 0
     hash_matches = []
     cert_matches = []
+    sbat_matches = []
 
     for root, dirs, files in os.walk(efi_path):
         for name in files:
@@ -447,6 +466,17 @@ def scan_efi_folder(dbx_hashes, revoked_cert_thumbprints, efi_path):
                 hash_value = compute_authenticode_hash_signify(full_path)
             else:
                 hash_value = compute_authenticode_hash_ossl(full_path)
+
+            sbat_entries = parse_sbat(full_path)
+            for sbat in sbat_entries:
+                if "vendor" in sbat:
+                    if sbat["vendor"] in sbat_policy:
+                        min_version = int(sbat_policy[sbat["vendor"]])
+                        if "generation" in sbat and sbat["generation"] < min_version:
+                            sbat_matches.append((full_path, min_version, sbat["generation"]))
+                            break
+                    else:
+                        sbat_policy[sbat["vendor"]] = sbat["generation"]
 
             if hash_value and hash_value in dbx_hashes:
                 hash_matches.append((full_path, hash_value))
@@ -471,7 +501,7 @@ def scan_efi_folder(dbx_hashes, revoked_cert_thumbprints, efi_path):
     print(f"Revoked binary hash matches found: {len(hash_matches)}")
     print(f"Revoked certificate matches found: {len(cert_matches)}")
 
-    return hash_matches, cert_matches
+    return hash_matches, cert_matches, sbat_matches
 
 
 # ------------------------------------------------------------
@@ -553,6 +583,75 @@ def local_dbx_superset_check(dbx_json, arch_key, efivar_path, list_missing=False
 
     return rep
 
+# -----------------------------------------------------------
+# Dont forget the SBAT section parser
+# -----------------------------------------------------------
+def parse_sbat(binary_path):
+    """
+    Extracts SBAT entries from an EFI binary (.efi).
+
+    Returns:
+        List of dicts: [{'component': str, 'generation': int, 'vendor': str, ...}]
+    """
+    # SBAT is stored in a PE/COFF section named ".sbat"
+    # We'll parse the PE headers enough to locate sections
+
+    with open(binary_path, "rb") as f:
+        data = f.read()
+
+    # PE header offset is at 0x3C
+    pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
+
+    # Check PE signature "PE\0\0"
+    if data[pe_offset:pe_offset+4] != b"PE\x00\x00":
+        raise ValueError(f"{binary_path} is not a valid PE/EFI binary")
+
+    # Number of sections
+    num_sections = struct.unpack_from("<H", data, pe_offset + 6)[0]
+    # Size of optional header
+    opt_header_size = struct.unpack_from("<H", data, pe_offset + 20)[0]
+
+    # Section headers start after PE signature + COFF header + optional header
+    section_start = pe_offset + 4 + 20 + opt_header_size
+
+    sbat_offset = None
+    sbat_size = None
+
+    for i in range(num_sections):
+        sec_offset = section_start + i * 40  # section header size = 40
+        name = data[sec_offset:sec_offset+8].rstrip(b"\x00").decode('utf-8')
+        size = struct.unpack_from("<I", data, sec_offset + 8)[0]  # SizeOfRawData
+        file_offset = struct.unpack_from("<I", data, sec_offset + 20)[0]  # PointerToRawData
+
+        if name == ".sbat":
+            sbat_offset = file_offset
+            sbat_size = size
+            break
+
+    if sbat_offset is None:
+        return []  # No SBAT section present
+
+    sbat_data = data[sbat_offset:sbat_offset+sbat_size]
+
+    # SBAT is stored as CSV text, may contain null padding
+    sbat_text = sbat_data.split(b'\x00')[0].decode("utf-8", errors='ignore')
+
+    # Each line is a row
+    entries = []
+    for line in sbat_text.strip().splitlines():
+        # Typical format: vendor,product,component,generation,...
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) >= 4:
+            entry = {
+                "vendor": parts[0],
+                "generation": int(parts[1]),
+                "product": parts[2],
+                "component": parts[3],
+                "version": parts[4] if len(parts) > 4 else "",
+                "url": parts[5] if len(parts) > 5 else ""
+            }
+            entries.append(entry)
+    return entries
 
 # ------------------------------------------------------------
 # CLI / Main
@@ -606,6 +705,12 @@ def parse_args(argv):
         default=None,
         help="Path to an EFI binary whose Authenticode chain includes the revoked cert from JSON. Used to validate cert revocation presence on SHA256-only DBX systems."
     )
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s {_VERSION}"
+    )
     return parser.parse_args(argv)
 
 def resolve_scan_path(args):
@@ -636,7 +741,7 @@ def load_dbx(args):
 def main(argv=None):
     args = parse_args(argv if argv is not None else sys.argv[1:])
     dbx_json = load_dbx(args)
-
+    sbat_policy = load_sbat(SBAT_URL)
     # Local DBX check mode
     if args.check_local_dbx:
         arch_key = args.arch or detect_arch_key()
@@ -706,9 +811,9 @@ def main(argv=None):
     dbx_hashes = extract_arch_hashes(dbx_json, arch_key)
     revoked_certs = extract_revoked_cert_thumbprints(dbx_json)
 
-    hash_matches, cert_matches = scan_efi_folder(dbx_hashes, revoked_certs, efi_path)
+    hash_matches, cert_matches, sbat_matches = scan_efi_folder(dbx_hashes, revoked_certs, sbat_policy, efi_path)
 
-    if not hash_matches and not cert_matches:
+    if not hash_matches and not cert_matches and not sbat_matches:
         print("[+] No revoked EFI binaries or revoked signer certificates detected.")
         sys.exit(0)
 
@@ -722,6 +827,10 @@ def main(argv=None):
         for path, fp, cert_entry in cert_matches:
             subj = cert_entry.get("subjectName", "")
             print(f"{path} -> thumbprint={fp}" + (f" subjectName={subj}" if subj else ""))
+    if sbat_matches:
+        print("\n[!] SBAT version check failed for :")
+        for path,v,g in sbat_matches:
+            print(f"{path} -> Expected version: {v}, Seen version: {g}")
 
     sys.exit(2)
 
