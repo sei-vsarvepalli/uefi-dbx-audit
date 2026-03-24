@@ -24,7 +24,7 @@ Microsoft’s revoked Authenticode hashes (DBX). If it finds matches, it reports
 ## Learn by Examples
 
 ### Example 1: Default operation (no revoked binaries found)
-
+[Depending on you system configuration, you may need to do "sudo" ]
 ```
 bash:~$  python3 verify-dbx.py 
 [*] signify not available, falling back to osslsigncode
@@ -196,6 +196,48 @@ Revoked certificate matches found: 0
 /tmp/super/BOOTIA32.EFI -> Expected version: 4, Seen version: 2
 /tmp/super/mmx64.efi -> Expected version: 4, Seen version: 2
 ```
+
+### Help command - explore all options available.
+
+```
+bash:~$ python3 verify-dbx-hashes.py -h
+[*] signify not available, falling back to osslsigncode
+usage: verify-dbx-hashes.py [-h] [-p PATH_FLAG] [-j DBX_JSON_PATH] [--check-local-dbx]
+                            [--efivar-dbx-path EFIVAR_DBX_PATH]
+                            [--arch {x64,ia32,arm64}] [--list-missing]
+                            [--probe-cert-efi PROBE_CERT_EFI]
+                            [path]
+
+Scan EFI for revoked binaries (DBX authenticodeHash) and revoked certs (DBX
+certificates.thumbprint). Optionally verify local firmware DBX is a superset of the JSON
+DBX.
+
+positional arguments:
+  path                  Path to scan (default: /boot/efi)
+
+options:
+  -h, --help            show this help message and exit
+  -p PATH_FLAG, --path PATH_FLAG
+                        Path to scan (overrides positional PATH; default: /boot/efi)
+  -j DBX_JSON_PATH, --dbx-json DBX_JSON_PATH
+                        Use this local DBX JSON file instead of downloading (default:
+                        use ./dbx_info_msft_latest.json if present, else download).
+  --check-local-dbx     Compare local firmware DBX (efivar) against JSON DBX for
+                        detected architecture. Local DBX expected to be a superset.
+  --efivar-dbx-path EFIVAR_DBX_PATH
+                        Path to efivarfs DBX variable (default:
+                        /sys/firmware/efi/efivars/dbx-d719b2cb-3d3a-4596-a3bc-
+                        dad00e67656f)
+  --arch {x64,ia32,arm64}
+                        Override detected architecture for selecting images.<arch> from
+                        JSON DBX.
+  --list-missing        List missing entries (hashes/thumbprints) when using --check-
+                        local-dbx.
+  --probe-cert-efi PROBE_CERT_EFI
+                        Path to an EFI binary whose Authenticode chain includes the
+                        revoked cert from JSON. Used to validate cert revocation
+                        presence on SHA256-only DBX systems.
+```			
 
 Still want to learn more? Continue in [DeepDive.md](DeepDive.md).
 

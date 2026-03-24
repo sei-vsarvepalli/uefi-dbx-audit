@@ -659,8 +659,7 @@ def parse_sbat(binary_path):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(
-        description="Scan EFI for revoked binaries (DBX authenticodeHash) and revoked certs (DBX certificates.thumbprint). Optionally verify local firmware DBX is a superset of the JSON DBX."
-    )
+        description="Scan EFI binaries on a system for revocations against DBX authenticodeHash, against DBX revoked certificates by thumbprint, and against SBAT revocations. Additionally, verify local firmware DBX (in NVRAM) is a superset of the latest Microsoft DBX.")
     parser.add_argument(
         "path",
         nargs="?",
