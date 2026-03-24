@@ -768,10 +768,7 @@ def main(argv=None):
 
         if rep.get("cert_check_skipped"):
             print("[*] Note: Local DBX contains no X509 signature lists. "
-                  "Certificate thumbprints cannot be directly compared. "
-                  "If you have an EFI file that was signed by the revoked certificate, "
-                  "provide --probe-cert-efi to attempt a best-effort validation (only "
-                  "supports 1 JSON cert).")
+                  "Certificate thumbprints in NVRAM may be custom and not auditable.")
 
         if rep.get("cert_probe_details"):
             d = rep["cert_probe_details"]
