@@ -21,6 +21,24 @@ Microsoft’s revoked Authenticode hashes (DBX). If it finds matches, it reports
 
 ---
 
+## Install
+
+### Requirements
+
+- Python 3
+- `pip install requests`
+- `pip install signify` (preferred)  
+- `apt-get install osslsigncode` || `dnf install osslsigncode` (fallback)
+[Of the last options two one of them is required]
+
+### Download and install
+
+- `git clone https://github.com/sei-vsarvepalli/uefi-dbx-audit`
+- `cd uefi-dbx-audit`
+- `python3 verify-dbx.py -h`
+
+
+
 ## Learn by Examples
 
 ### Example 1: Default operation (no revoked binaries found)
