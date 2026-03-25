@@ -383,6 +383,9 @@ def summarize_dbx_sigtypes(raw):
     return counts
 
 def read_efivar_dbx(path):
+    if not os.path.exists(path):
+        print(f"[!] DBX path does not exist: {path}")
+        sys.exit(1)
     with open(path, "rb") as f:
         blob = f.read()
     if len(blob) < 4:
@@ -719,6 +722,10 @@ def resolve_scan_path(args):
         sys.exit(1)
     if not os.path.isdir(scan_path):
         print(f"[!] Scan path is not a directory: {scan_path}")
+        sys.exit(1)
+    if not os.access(scan_path, os.R_OK | os.X_OK):
+        print(f"[!] Scan path is not accessible (need read+execute): {scan_path}")
+        print(f"[!] Consider running this as sudo {' '.join(sys.argv)}")
         sys.exit(1)
     return scan_path
 

@@ -15,7 +15,7 @@ with Microsoft’s published Secure Boot revocations (via the open-source
 It can also audit a mounted Linux EFI System Partition (**ESP**) for binaries that
 match entries revoked by Microsoft’s Secure Boot DBX.
 
-By default, the script `verify-dbx.py` scans a mounted EFI filesystem (default:
+By default, the script `verify-dbx-hashes.py` scans a mounted EFI filesystem (default:
 `/boot/efi`) and checks whether any EFI binaries, shims, or bootloader files match
 Microsoft’s revoked Authenticode hashes (DBX). If it finds matches, it reports them.
 
