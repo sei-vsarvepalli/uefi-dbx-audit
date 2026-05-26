@@ -176,7 +176,7 @@ def compute_authenticode_hash_ossl(filepath):
             if "Calculated message digest" in line:
                 return line.split(":")[-1].strip().lower()
     except Exception as e:
-        print("Error osslsigncode is not working {e} Install if needed")
+        print(f"Error osslsigncode is not working {e} Install if needed")
     return None
 
 
