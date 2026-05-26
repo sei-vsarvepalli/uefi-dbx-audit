@@ -29,7 +29,8 @@ _VERSION = "1.0.9"
 
 USE_SIGNIFY = False
 try:
-    from signify.authenticode import SignedPEFile
+    from signify.authenticode import AuthenticodeFile
+    from signify.exceptions import SignifyError
     USE_SIGNIFY = True
     print("[*] Using signify for Authenticode hashing")
 except Exception:
@@ -151,10 +152,13 @@ def looks_like_pe(filepath):
 def compute_authenticode_hash_signify(filepath):
     try:
         with open(filepath, "rb") as f:
-            pe = SignedPEFile(f)
-            digest = pe.get_fingerprint(hashlib.sha256())
-            return digest.hex().lower()
-    except Exception:
+            signed_file = AuthenticodeFile.from_stream(f)
+            status, error = signed_file.explain_verify()
+            for signature in signed_file.signatures:
+                #return the first signature found
+                return signed_file.get_fingerprint(signature.digest_algorithm).hex().lower()
+    except Exception as e:
+        print(f"Error when executing signify library {e}")
         return None
 
 def compute_authenticode_hash_ossl(filepath):

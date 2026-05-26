@@ -145,7 +145,7 @@ system may not have enough available firmware/NVRAM space to store additional
 DBX entries. Consider getting new hardware, as you cannot avoid BootKits! 
 
 ```
-bash:~$ python3 verify-dbx-hashes_Version38.py --check-local-dbx   --list-missing
+bash:~$ python3 verify-dbx-hashes.py --check-local-dbx   --list-missing
 [*] signify not available, falling back to osslsigncode
 [*] Loaded 431 x64 hashes from DBX JSON
 
