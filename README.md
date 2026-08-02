@@ -35,7 +35,7 @@ Microsoft’s revoked Authenticode hashes (DBX). If it finds matches, it reports
 
 - `git clone https://github.com/sei-vsarvepalli/uefi-dbx-audit`
 - `cd uefi-dbx-audit`
-- `python3 verify-dbx.py -h`
+- `python3 verify-dbx-hashes.py -h`
 
 
 
@@ -44,7 +44,7 @@ Microsoft’s revoked Authenticode hashes (DBX). If it finds matches, it reports
 ### Example 1: Default operation (no revoked binaries found)
 [Depending on you system configuration, you may need to do "sudo" ]
 ```
-bash:~$  python3 verify-dbx.py 
+bash:~$  python3 verify-dbx-hashes.py 
 [*] signify not available, falling back to osslsigncode
 [*] Loaded 431 x64 hashes from DBX JSON
 [*] Loaded 1 revoked certificate thumbprints from DBX JSON
@@ -61,7 +61,7 @@ Revoked certificate matches found: 0
 ### Example 2: Default operation (a revoked EFI found in `/boot/efi`)
 
 ```
-bash:~$ python3 verify-dbx.py 
+bash:~$ python3 verify-dbx-hashes.py 
 [*] signify not available, falling back to osslsigncode
 [*] Loaded 431 x64 hashes from DBX JSON
 [*] Loaded 1 revoked certificate thumbprints from DBX JSON
@@ -87,7 +87,7 @@ certificate, and it may not be relevant to most Linux systems. However, it can
 still be useful to know it exists on disk.
 
 ```
-bash:~$  python3 verify-dbx.py /tmp
+bash:~$  python3 verify-dbx-hashes.py /tmp
 [*] signify not available, falling back to osslsigncode
 [*] Loaded 431 x64 hashes from DBX JSON
 [*] Loaded 1 revoked certificate thumbprints from DBX JSON
@@ -117,7 +117,7 @@ context of BlackLotus-related revocations).
 
 
 ```
-bash:~$ python3 verify-dbx.py --check-local-dbx  --list-missing
+bash:~$ python3 verify-dbx-hashes.py --check-local-dbx  --list-missing
 [*] signify not available, falling back to osslsigncode
 [*] Loaded 431 x64 hashes from DBX JSON
 
